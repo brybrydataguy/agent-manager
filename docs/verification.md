@@ -46,3 +46,15 @@ The missing-dependency, lost-response, and concurrency failures were reproduced
 with tests, not by disrupting a live user's session. This record does not claim
 all provider versions, arbitrary shell startup customizations, or crash windows
 were exercised live.
+
+## Execution-mode follow-up
+
+A second live test on the same date used the corrected launch configuration:
+`--permission-mode default`, built-in tools limited to Read/Glob/Grep/WebFetch/
+WebSearch, and the scoped submission tool allowlisted. The UI displayed manual
+mode. Claude read the example skill and submitted the synthetic packet directly
+through MCP without a plan-approval prompt. The packet validated and was accepted.
+This tests the actual supported configuration; strict plan mode is no longer a
+research-worker launch option. Folder trust was already established for this
+checkout. Automatic handling of a new folder-trust UI was not exercised in this
+follow-up.

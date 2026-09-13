@@ -29,6 +29,9 @@ Run `--help` for commands. Python 3.10+ is required; no runtime packages are nee
    events arrive. Keep waiting while work is active and report meaningful progress.
    No background daemon wakes a manager that has ended its turn. Maintain this
    foreground wait loop while supervising, or explicitly hand off monitoring.
+   When a wait returns no events, inspect outstanding workers with `inspect <run>`.
+   An idle or blocked worker without a submission needs inspection, not another
+   indefinite wait. Follow the approval policy below when a routine gate appears.
 5. On submission, `validate <run>`, then `artifact <run> --version <n>`. Review
    evidence and project policy independently. Validation alone is not approval.
 6. For content corrections, `revise <run> --version <reviewed-version> --reason <specific feedback>`, then
@@ -68,11 +71,40 @@ new operation or adopt a newer generation. Receipt replay does not constitute a
 new revision. Review feedback is pinned to the exact version; a retry of the same
 feedback leaves newer submissions untouched.
 
+## Routine approvals
+
+The user wants the manager to resolve routine gates within the assignment. Read
+`config.approvals`; its explicit grants authorize these actions without asking
+the user again. They do not grant new authority to publish, install, edit, or
+execute arbitrary commands. Missing grants mean ask the user.
+
+- `workspace_trust: true`: accept the provider's folder-trust prompt only when
+  the displayed canonical path matches the run's configured project exactly.
+- `artifact_submission: true`: allow the exact per-run submission MCP tool.
+  For a legacy worker blocked in plan mode, read its complete plan and ensure
+  the only proposed execution is that tool, with the expected run, generation,
+  and candidate packet. Approve using the option that retains normal permission
+  checks, never automatic file editing or bypass permissions. This permits
+  submission for review, not acceptance of the submitted content.
+
+Before any UI response, verify the named worker still occupies its recorded pane,
+inspect the actual prompt and current choices, and ensure the user is not editing
+in the pane. Do not send menu keys into an editor, infer option numbers from a
+past screenshot, or treat an agent's ordinary prose as a permission dialog.
+After responding, inspect the result and return to event monitoring. If the menu
+does not offer a suitably scoped option, surface the blocker instead of broadening
+permissions. Tell the user what routine gate you resolved as a progress update.
+
+New research workers use normal execution mode with only Read, Glob, Grep,
+WebFetch, WebSearch, and the per-run submission MCP tool. No shell, file-write,
+plan-entry, or subagent tools are exposed. Do not start them in plan mode: it
+prohibits submission even when the tool is allowlisted.
+
 The worker's MCP tool can submit only to its assignment and cannot approve it.
 These are tool capabilities, not an OS sandbox: all same-user processes can access
-the private store. Claude runs in plan permission mode, without bypass flags.
-If its permission UI blocks the submission tool, inspect it and surface the exact
-permission request. Do not bypass the provider's permissions to force completion.
+the private store. Claude runs with normal permissions and a restricted tool
+list, without bypass flags. Apply the scoped approval grants above to routine
+permission gates; escalate requests outside those grants.
 
 ## User experience
 

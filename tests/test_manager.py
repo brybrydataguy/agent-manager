@@ -104,6 +104,11 @@ class Lifecycle(unittest.TestCase):
             split_args = calls[0]
             for key in m.API_ENV:
                 self.assertIn(key + '=', split_args)
+            startup = next(a for a in calls if a[:2] == ('agent', 'start'))
+            self.assertEqual(startup[startup.index('--permission-mode') + 1], 'default')
+            self.assertEqual(startup[startup.index('--tools') + 1], 'Read,Glob,Grep,WebFetch,WebSearch')
+            self.assertIn('mcp__submission__submit_artifact', startup[startup.index('--allowedTools') + 1])
+            self.assertNotIn('--dangerously-skip-permissions', startup)
             self.assertEqual(result['state'], 'working')
             with self.assertRaises(m.Failure):
                 m.start(self.db, self.root, self.run, 'down')

@@ -5,5 +5,6 @@
   "preflight": ["python3", "examples/research/validate.py", "--check"],
   "validator": ["python3", "examples/research/validate.py", "{artifact}"],
   "max_revisions": 3,
+  "approvals": {"workspace_trust": true, "artifact_submission": true},
   "review_criteria": ["Sources support the claims", "Limitations are explicit", "The user's question is answered"]
 }

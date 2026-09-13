@@ -28,6 +28,9 @@ API_ENV = (
     'OPENAI_BASE_URL', 'OPENAI_API_BASE', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
 )
 
+RESEARCH_TOOLS = 'Read,Glob,Grep,WebFetch,WebSearch'
+SUBMISSION_TOOL = 'mcp__submission__submit_artifact'
+
 
 def connect(root):
     root = Path(root).resolve()
@@ -105,6 +108,10 @@ def create(db, config_path, task):
         raise Failure('max_revisions must be a nonnegative integer')
     if config.get('provider', 'claude') != 'claude':
         raise Failure('v1 visible adapter supports Claude only')
+    approvals = config.get('approvals', {})
+    if (not isinstance(approvals, dict) or set(approvals) - {'workspace_trust', 'artifact_submission'}
+            or any(type(value) is not bool for value in approvals.values())):
+        raise Failure('approvals supports only boolean workspace_trust and artifact_submission')
     rid = uuid.uuid4().hex[:16]
     run = dict(id=rid, task=task, config=config, project=str(project), state='created',
                version=0, accepted=None, token=secrets.token_urlsafe(32),
@@ -337,8 +344,10 @@ def launch(db, root, rid, retry=False):
     mcp_path = Path(root).resolve() / rid / 'mcp.json'
     if not mcp_path.is_file():
         raise Failure('Saved MCP configuration missing; restore it before launching')
-    args = ['--permission-mode', 'plan', '--strict-mcp-config', '--mcp-config', str(mcp_path),
-            '--allowedTools', 'mcp__submission__submit_artifact']
+    # Plan mode forbids the side-effecting submission tool even when allowlisted.
+    # Use execution mode with a small tool surface instead of a global bypass.
+    args = ['--permission-mode', 'default', '--strict-mcp-config', '--mcp-config', str(mcp_path),
+            '--tools', RESEARCH_TOOLS, '--allowedTools', RESEARCH_TOOLS + ',' + SUBMISSION_TOOL]
     if run['config'].get('model'):
         args += ['--model', run['config']['model']]
     herdr('agent', 'start', run['agent'], '--kind', 'claude', '--pane', run['pane'], '--', *args)
@@ -419,6 +428,13 @@ def events(db, after, timeout):
         if rows or time.monotonic() >= deadline:
             return [dict(r) for r in rows]
         time.sleep(0.2)
+
+
+def inspect_worker(db, rid):
+    run = get(db, rid)
+    identity = worker_identity(run)
+    return {'run': public(run), 'worker': identity,
+            'terminal': herdr('agent', 'read', run['agent'], '--source', 'recent-unwrapped', '--lines', '120')}
 
 
 def close(db, root, rid, retry=False):
@@ -548,7 +564,7 @@ def main():
     p.add_argument('--root', default='.manager', help='Private run store; reuse across manager restarts')
     sub = p.add_subparsers(dest='action', required=True)
     c = sub.add_parser('create'); c.add_argument('--config', required=True); c.add_argument('--task', required=True)
-    for name in ('status', 'start', 'recover-start', 'launch', 'assign', 'validate', 'revise', 'deliver', 'accept', 'artifact', 'close', 'worker-server'):
+    for name in ('status', 'inspect', 'start', 'recover-start', 'launch', 'assign', 'validate', 'revise', 'deliver', 'accept', 'artifact', 'close', 'worker-server'):
         c = sub.add_parser(name); c.add_argument('run')
         if name in ('accept', 'artifact', 'revise'): c.add_argument('--version', type=int, required=True)
         if name in ('accept', 'revise'): c.add_argument('--reason', required=True)
@@ -570,6 +586,7 @@ def main():
         if a == 'create': result = create(db, args.config, args.task)
         elif a == 'list': result = [public(json.loads(r[0])) for r in db.execute('SELECT data FROM runs')]
         elif a == 'status': result = public(get(db, args.run))
+        elif a == 'inspect': result = inspect_worker(db, args.run)
         elif a == 'start': result = start(db, args.root, args.run, args.direction)
         elif a == 'launch': result = launch(db, args.root, args.run, args.retry_launch)
         elif a == 'recover-start': result = recover_start(db, args.run, args.no_pane_created, args.pane)

@@ -86,14 +86,23 @@ historical v0.1 submissions have no operation receipts to replay. The `revise`
 command now requires `--version`.
 
 Workers receive a per-run MCP capability that can submit but cannot approve.
-Claude starts in plan mode, with the submission server explicitly configured and
-its tool allowlisted. Permission prompts remain under the provider's control.
-The runtime requests plan mode; users can change it in the provider UI. New Herdr
+Claude starts in normal execution mode with only Read, Glob, Grep, WebFetch,
+WebSearch, and the per-run submission MCP tool available and allowlisted. It has
+no shell, file-write, or subagent tools. Plan mode is intentionally not used:
+its execution prohibition also blocks artifact submission. New Herdr
 panes explicitly clear API credential and third-party-routing environment variables
 so they cannot inherit different billing credentials from the Herdr server.
 Subscription authentication is checked before starting. Shell startup scripts and
 provider-managed settings remain trusted configuration; do not configure them to
 reintroduce API credentials in a subscription-only workflow.
+
+The example config grants the manager `approvals.workspace_trust` for the exact
+project and `approvals.artifact_submission` for its scoped MCP tool. The manager
+skill uses these grants to handle matching permission prompts without asking
+again, including a submission-only plan from an older worker. It retains normal
+permissions and never blanket-approves plans. `inspect RUN` provides the live
+worker and terminal state. The manager must still be actively supervising;
+this is not an unattended background UI approval service.
 This is not OS-level isolation: another process running as your user can read or
 modify your files, including the SQLite store. Use isolated users/containers for
 untrusted workers. Configuration is trusted executable input.
