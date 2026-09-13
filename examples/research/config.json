@@ -1,6 +1,7 @@
 {
   "project": "../..",
   "provider": "claude",
+  "read_hosts": ["www.python.org"],
   "skill": "examples/research/SKILL.md",
   "preflight": ["python3", "examples/research/validate.py", "--check"],
   "validator": ["python3", "examples/research/validate.py", "{artifact}"],

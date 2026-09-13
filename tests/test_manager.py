@@ -27,7 +27,8 @@ class Lifecycle(unittest.TestCase):
         self.db = m.connect(self.root)
         skill = self.root / 'SKILL.md'; skill.write_text('Research')
         self.config = self.root / 'config.json'
-        self.config.write_text(json.dumps({'project': '.', 'skill': 'SKILL.md',
+        self.config.write_text(json.dumps({'project': '.', 'provider': 'claude', 'skill': 'SKILL.md',
+            'approvals': {'artifact_submission': True},
             'validator': [sys.executable, str(self.root / 'missing-validator.py'), '{artifact}']}))
         self.run = m.create(self.db, self.config, 'Research a question')['id']
 
@@ -100,7 +101,7 @@ class Lifecycle(unittest.TestCase):
             return {'result': {'pane': {'pane_id': 'test:p2'}}}
         with patch.dict(os.environ, {'HERDR_ENV':'1'}), patch.object(m, 'herdr', fake), patch.object(m, 'command', return_value='ok'):
             result = m.start(self.db, self.root, self.run, 'down')
-            self.assertEqual([x[:2] for x in calls], [('pane','split'), ('pane','get'), ('agent','start'), ('agent','get'), ('agent','prompt')])
+            self.assertEqual([x[:2] for x in calls], [('pane','split'), ('pane','get'), ('agent','start')])
             split_args = calls[0]
             for key in m.API_ENV:
                 self.assertIn(key + '=', split_args)
@@ -109,7 +110,10 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(startup[startup.index('--tools') + 1], 'Read,Glob,Grep,WebFetch,WebSearch')
             self.assertIn('mcp__submission__submit_artifact', startup[startup.index('--allowedTools') + 1])
             self.assertNotIn('--dangerously-skip-permissions', startup)
-            self.assertEqual(result['state'], 'working')
+            self.assertEqual(result['state'], 'starting')
+            self.assertIn('get_assignment', m.get(self.db, self.run)['bootstrap_text'])
+            m.get_assignment(self.db, self.run, m.get(self.db, self.run)['token'])
+            self.assertEqual(m.get(self.db, self.run)['state'], 'working')
             with self.assertRaises(m.Failure):
                 m.start(self.db, self.root, self.run, 'down')
 

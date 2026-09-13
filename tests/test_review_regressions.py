@@ -27,7 +27,7 @@ class ReviewRegressions(unittest.TestCase):
         self.db = m.connect(self.root)
         (self.root / 'skill.md').write_text('Research')
         config = self.root / 'config.json'
-        config.write_text(json.dumps({'project': '.', 'skill': 'skill.md'}))
+        config.write_text(json.dumps({'project': '.', 'provider': 'claude', 'skill': 'skill.md'}))
         self.rid = m.create(self.db, config, 'Research')['id']
 
     def tearDown(self):
@@ -218,7 +218,7 @@ class ReviewRegressions(unittest.TestCase):
             return self.ready(*args)
         with patch.object(m, 'herdr', bare):
             m.recover_start(self.db, self.rid, pane='test:p2')
-            self.assertEqual(m.launch(self.db, self.root, self.rid)['state'], 'working')
+            self.assertEqual(m.launch(self.db, self.root, self.rid)['state'], 'starting')
         self.assertNotIn(('pane','split'), [a[:2] for a in calls])
         self.assertEqual([a[:2] for a in calls].count(('agent','start')), 1)
 
