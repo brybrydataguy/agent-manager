@@ -1,0 +1,4 @@
+.manager/
+__pycache__/
+*.pyc
+.venv/

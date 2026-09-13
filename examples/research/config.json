@@ -1,0 +1,9 @@
+{
+  "project": "../..",
+  "provider": "claude",
+  "skill": "examples/research/SKILL.md",
+  "preflight": ["python3", "examples/research/validate.py", "--check"],
+  "validator": ["python3", "examples/research/validate.py", "{artifact}"],
+  "max_revisions": 3,
+  "review_criteria": ["Sources support the claims", "Limitations are explicit", "The user's question is answered"]
+}
