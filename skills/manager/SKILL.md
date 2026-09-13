@@ -31,7 +31,7 @@ Run `--help` for commands. Python 3.10+ is required; no runtime packages are nee
    foreground wait loop while supervising, or explicitly hand off monitoring.
 5. On submission, `validate <run>`, then `artifact <run> --version <n>`. Review
    evidence and project policy independently. Validation alone is not approval.
-6. For content corrections, `revise <run> --reason <specific feedback>`, then
+6. For content corrections, `revise <run> --version <reviewed-version> --reason <specific feedback>`, then
    `deliver <run>`. The original worker stays alive for this exchange. Revisions
    are bounded by configuration. Escalate unresolved disagreements to the user.
 7. Accept only a reviewed version: `accept <run> --version <n> --reason <review>`.
@@ -50,12 +50,23 @@ as artifact submission.
 Session creation and prompt delivery involve external effects. A crash can leave
 `starting`, `initial_delivery: uncertain`, or `delivery: uncertain`. Inspect the
 recorded pane and named worker using Herdr before taking action; do not blindly
-relaunch or resend. If startup was blocked and the recorded worker is now ready,
-use `assign <run>` to finish the saved startup without creating another pane.
-For uncertain delivery after assignment, if it was not delivered, send the original
-brief plus the configured skill and submission-tool instructions to that worker.
-If a revision was not delivered, send the persisted feedback to that worker.
+relaunch or resend. For a split with no recorded pane, inspect Herdr. If no pane
+was created, use `recover-start <run> --no-pane-created`, then start again. If a
+bare pane or ready worker was created, use `recover-start <run> --pane <id>` to
+adopt it. Use `launch <run>` to launch in an adopted bare pane; after an uncertain
+launch, `launch <run> --retry-launch` first verifies that pane is still agent-free.
+If startup was blocked and the recorded worker is now ready, use `assign <run>`.
+For uncertain initial delivery, establish that it was not delivered, then use
+`assign <run> --retry-undelivered`. It uses the exact persisted prompt. For an
+undelivered revision, use `deliver <run> --retry-undelivered`. For uncertain exit,
+inspect the recorded worker and use `close <run> --retry-exit` when needed.
 Submission remains enabled while an initial/revision delivery is uncertain.
+
+Workers submit `packet`, `operation_id`, and `generation`. The prompt supplies the
+generation. A retry must reuse its original operation ID and bytes, not mint a
+new operation or adopt a newer generation. Receipt replay does not constitute a
+new revision. Review feedback is pinned to the exact version; a retry of the same
+feedback leaves newer submissions untouched.
 
 The worker's MCP tool can submit only to its assignment and cannot approve it.
 These are tool capabilities, not an OS sandbox: all same-user processes can access

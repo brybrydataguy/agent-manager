@@ -9,6 +9,15 @@ import unittest
 from unittest.mock import patch
 
 import manager as m
+import uuid
+
+
+def submit(db, rid, token, body):
+    return m.submit(db, rid, token, body, uuid.uuid4().hex, m.get(db, rid)['generation'])
+
+
+def revise(db, rid, reason):
+    return m.revise(db, rid, reason, m.get(db, rid)['version'])
 
 
 class Lifecycle(unittest.TestCase):
@@ -35,44 +44,44 @@ class Lifecycle(unittest.TestCase):
 
     def test_failure_restart_revision_accept(self):
         token = self.working()
-        first = m.submit(self.db, self.run, token, '{"summary":"first"}')
+        first = submit(self.db, self.run, token, '{"summary":"first"}')
         self.assertEqual(m.validate(self.db, self.root, self.run)['state'], 'validation_failed')
         self.db.close()
         self.db = m.connect(self.root)
         self.assertEqual(m.packet(self.db, m.get(self.db, self.run), 1)['body'], '{"summary":"first"}')
         (self.root / 'missing-validator.py').write_text('import sys\nsys.exit(0)\n')
         self.assertEqual(m.validate(self.db, self.root, self.run)['state'], 'review_ready')
-        m.revise(self.db, self.run, 'Add source detail')
-        second = m.submit(self.db, self.run, token, '{"summary":"revised"}')
+        revise(self.db, self.run, 'Add source detail')
+        second = submit(self.db, self.run, token, '{"summary":"revised"}')
         m.validate(self.db, self.root, self.run)
         with self.assertRaises(m.Failure):
             m.accept(self.db, self.run, first['version'], 'Old version')
         approved = m.accept(self.db, self.run, second['version'], 'Sources checked')
         self.assertEqual(approved['accepted'], 2)
         with self.assertRaises(m.Failure):
-            m.submit(self.db, self.run, token, '{}')
+            submit(self.db, self.run, token, '{}')
 
     def test_invalid_json_is_durable(self):
         token = self.working()
-        m.submit(self.db, self.run, token, 'bad json')
+        submit(self.db, self.run, token, 'bad json')
         self.assertEqual(m.validate(self.db, self.root, self.run)['state'], 'validation_failed')
         self.assertEqual(m.packet(self.db, m.get(self.db, self.run), 1)['body'], 'bad json')
 
     def test_scoped_submission_and_notification(self):
         token = self.working()
         with self.assertRaises(m.Failure):
-            m.submit(self.db, self.run, 'wrong', '{}')
-        m.submit(self.db, self.run, token, '{}')
+            submit(self.db, self.run, 'wrong', '{}')
+        submit(self.db, self.run, token, '{}')
         ev = m.events(self.db, 0, 0)
         self.assertEqual(ev[-1]['kind'], 'submitted')
         self.assertEqual(m.events(self.db, ev[-1]['id'], 0), [])
         with self.assertRaises(m.Failure):
-            m.submit(self.db, self.run, token, '{}')
+            submit(self.db, self.run, token, '{}')
 
     def test_mcp_submission_survives_process_exit(self):
         token = self.working()
         req = {'jsonrpc':'2.0','id':1,'method':'tools/call',
-               'params': {'name':'submit_artifact','arguments':{'packet':'{"summary":"MCP"}'}}}
+               'params': {'name':'submit_artifact','arguments':{'packet':'{"summary":"MCP"}', 'operation_id':'mcp-test', 'generation':0}}}
         result = subprocess.run([sys.executable, str(Path(m.__file__)), '--root', str(self.root),
             'worker-server', self.run, '--token', token], input=json.dumps(req)+'\n',
             capture_output=True, text=True)
@@ -84,12 +93,17 @@ class Lifecycle(unittest.TestCase):
         calls = []
         def fake(*args):
             calls.append(args)
+            if args[:2] == ('pane', 'get'):
+                return {'result': {'pane': {'pane_id':'test:p2', 'agent':None, 'cwd':str(self.root)}}}
             if args[:2] == ('agent', 'get'):
                 return {'result':{'agent':{'pane_id':'test:p2','agent':'claude','agent_status':'idle'}}}
             return {'result': {'pane': {'pane_id': 'test:p2'}}}
         with patch.dict(os.environ, {'HERDR_ENV':'1'}), patch.object(m, 'herdr', fake), patch.object(m, 'command', return_value='ok'):
             result = m.start(self.db, self.root, self.run, 'down')
-            self.assertEqual([x[:2] for x in calls], [('pane','split'), ('agent','start'), ('agent','get'), ('agent','prompt')])
+            self.assertEqual([x[:2] for x in calls], [('pane','split'), ('pane','get'), ('agent','start'), ('agent','get'), ('agent','prompt')])
+            split_args = calls[0]
+            for key in m.API_ENV:
+                self.assertIn(key + '=', split_args)
             self.assertEqual(result['state'], 'working')
             with self.assertRaises(m.Failure):
                 m.start(self.db, self.root, self.run, 'down')
@@ -117,14 +131,21 @@ class Lifecycle(unittest.TestCase):
 
     def test_failed_revision_delivery_is_not_blindly_retried(self):
         token = self.working()
-        m.submit(self.db, self.run, token, '{}')
-        m.revise(self.db, self.run, 'Improve source evidence')
-        with patch.object(m, 'herdr', side_effect=m.Failure('lost response')) as backend:
+        with self.db:
+            run = m.get(self.db, self.run); run['pane'] = 'test:p2'
+            m.save(self.db, run, 'test-pane')
+        submit(self.db, self.run, token, '{}')
+        revise(self.db, self.run, 'Improve source evidence')
+        def fake(*args):
+            if args[:2] == ('agent', 'get'):
+                return {'result': {'agent': {'pane_id':'test:p2', 'agent':'claude', 'agent_status':'idle'}}}
+            raise m.Failure('lost response')
+        with patch.object(m, 'herdr', side_effect=fake) as backend:
             with self.assertRaises(m.Failure): m.deliver(self.db, self.run)
             with self.assertRaises(m.Failure): m.deliver(self.db, self.run)
-            self.assertEqual(backend.call_count, 1)
+            self.assertEqual(backend.call_count, 2)
         self.assertEqual(m.get(self.db, self.run)['delivery'], 'uncertain')
-        self.assertEqual(m.submit(self.db, self.run, token, '{"revised":true}')['version'], 2)
+        self.assertEqual(submit(self.db, self.run, token, '{"revised":true}')['version'], 2)
 
     def test_no_herdr_from_outside(self):
         with patch.dict(os.environ, {'HERDR_ENV':''}), patch.object(m, 'command') as command:
@@ -137,7 +158,7 @@ class Lifecycle(unittest.TestCase):
         def producer():
             db = m.connect(self.root)
             try:
-                m.submit(db, self.run, token, '{}')
+                submit(db, self.run, token, '{}')
             finally:
                 db.close()
         thread = threading.Thread(target=producer)
@@ -152,7 +173,7 @@ class Lifecycle(unittest.TestCase):
         def producer(body):
             db = m.connect(self.root)
             try:
-                m.submit(db, self.run, token, body)
+                submit(db, self.run, token, body)
                 results.append('ok')
             except m.Failure:
                 results.append('refused')
@@ -166,14 +187,14 @@ class Lifecycle(unittest.TestCase):
 
     def test_validation_cannot_accept_modified_artifact(self):
         token = self.working()
-        m.submit(self.db, self.run, token, '{}')
+        submit(self.db, self.run, token, '{}')
         (self.root / 'missing-validator.py').write_text('import sys\nfrom pathlib import Path\nPath(sys.argv[1]).write_text("[]")\n')
         self.assertEqual(m.validate(self.db, self.root, self.run)['state'], 'validation_failed')
         with self.assertRaises(m.Failure): m.accept(self.db, self.run, 1, 'Cannot approve')
 
     def test_exit_requires_positive_absence(self):
         token = self.working()
-        m.submit(self.db, self.run, token, '{}')
+        submit(self.db, self.run, token, '{}')
         (self.root / 'missing-validator.py').write_text('')
         m.validate(self.db, self.root, self.run)
         m.accept(self.db, self.run, 1, 'Reviewed')
