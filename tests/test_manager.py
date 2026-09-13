@@ -102,6 +102,29 @@ class Lifecycle(unittest.TestCase):
         with patch.dict(os.environ, {'HERDR_ENV':'1'}), patch.object(m, 'herdr', fake), patch.object(m, 'command', return_value='ok'):
             with self.assertRaises(m.Failure): m.start(self.db, self.root, self.run, 'right')
         self.assertEqual(m.get(self.db, self.run)['pane'], 'test:p3')
+        def ready(*args):
+            if args[:2] == ('agent', 'get'):
+                return {'result':{'agent':{'pane_id':'test:p3','agent':'claude','agent_status':'idle'}}}
+            return {}
+        with patch.object(m, 'herdr', ready):
+            self.assertEqual(m.assign(self.db, self.run)['state'], 'working')
+
+    def test_preflight_failure_creates_no_pane(self):
+        with patch.dict(os.environ, {'HERDR_ENV':'1'}), patch.object(m, 'command', side_effect=m.Failure('not authenticated')), patch.object(m, 'herdr') as backend:
+            with self.assertRaises(m.Failure): m.start(self.db, self.root, self.run, 'right')
+            backend.assert_not_called()
+        self.assertEqual(m.get(self.db, self.run)['state'], 'created')
+
+    def test_failed_revision_delivery_is_not_blindly_retried(self):
+        token = self.working()
+        m.submit(self.db, self.run, token, '{}')
+        m.revise(self.db, self.run, 'Improve source evidence')
+        with patch.object(m, 'herdr', side_effect=m.Failure('lost response')) as backend:
+            with self.assertRaises(m.Failure): m.deliver(self.db, self.run)
+            with self.assertRaises(m.Failure): m.deliver(self.db, self.run)
+            self.assertEqual(backend.call_count, 1)
+        self.assertEqual(m.get(self.db, self.run)['delivery'], 'uncertain')
+        self.assertEqual(m.submit(self.db, self.run, token, '{"revised":true}')['version'], 2)
 
     def test_no_herdr_from_outside(self):
         with patch.dict(os.environ, {'HERDR_ENV':''}), patch.object(m, 'command') as command:
